@@ -1,4 +1,5 @@
-import io, os, sys, fnmatch, pathlib, shutil, datetime
+# Version 1.1
+import io, os, sys, fnmatch, pathlib, shutil, datetime, re
 import json
 from pathlib import Path
 from consolemenu.prompt_utils import PromptFormatter, UserQuit
@@ -120,21 +121,51 @@ def save(list):
     input("Appuyez sur une touche pour continuer...")
     exit()
 
-def remove_saved_dir():
+def remove_saved_dir(onlyLocal: bool=False):
     saved_dir = os.path.join(game_ark_dir, "Saved")
+    if onlyLocal:
+        sub_folder = os.path.join(saved_dir, "LocalProfiles")
+        if os.path.exists(sub_folder):
+            shutil.rmtree(sub_folder, onerror=True)
+        sub_folder = os.path.join(saved_dir, "SavedArksLocal")
+        if os.path.exists(sub_folder):
+            shutil.rmtree(sub_folder, onerror=True)
+    else:
     if os.path.exists(saved_dir):
         shutil.rmtree(saved_dir, onerror=True)
 
-def restore_specific(filename):
+def restore_only_local(filename):
+    remove_saved_dir(True)
+    print(f"RESTAURATION DES DOSSIERS 'LocalProfiles' et 'SavedArksLocal' DE LA PARTIE '{os.path.basename(filename)}'")
+    archive = SevenZipFile(filename, mode='r')
+    allfiles = archive.getnames()
+    filter_pattern = re.compile(r'Saved/LocalProfiles.*')
+    folder_list = [f for f in allfiles if filter_pattern.match(f) ]
+    archive.extract(path=game_ark_dir, targets=folder_list)
+    archive.reset()
+    filter_pattern = re.compile(r'Saved/SavedArksLocal.*')
+    folder_list = [f for f in allfiles if filter_pattern.match(f) ]
+    archive.extract(path=game_ark_dir, targets=folder_list)
+    archive.close()
+    print("ok")
+    input("Appuyez sur une touche pour continuer...")
+    exit()
+
+def restore_full(filename):
     remove_saved_dir()
     print(f"RESTAURATION DE LA PARTIE '{os.path.basename(filename)}'")
     archive = SevenZipFile(filename, mode='r')
-    #info = archive.archiveinfo()
     archive.extractall(path=game_ark_dir)
     archive.close()
     print("ok")
     input("Appuyez sur une touche pour continuer...")
     exit()
+
+def restore_specific(filename, full_restore):
+    if full_restore:
+        restore_full(filename)
+    else:
+        restore_only_local(filename)
 
 class SaveNameValidator(BaseValidator):
     def validate(self, input_string):
@@ -175,11 +206,14 @@ def build_menu():
         restore_last_title = f"Restaurer la dernière sauvegarde ({list[0]['datetime']})"
         restore_last_submenu = ConsoleMenu(restore_last_title)
 
-        restore_last_submenu.append_item(FunctionItem(restore_last_title, restore_specific, args=[list[0]['filename']]))
+        title_1 = "Restaurer LocalProfiles/SavedArksLocal de la sauvegarde."
+        title_2 = "Restaurer complètement la sauvegarde."
+        restore_last_submenu.append_item(FunctionItem(title_1, restore_specific, args=[list[0]['filename'],False]))
+        restore_last_submenu.append_item(FunctionItem(title_2, restore_specific, args=[list[0]['filename'],True]))
         menu.append_item(SubmenuItem(restore_last_title, restore_last_submenu))
 
-        # Restaurer une partie spéficique
-        restore_submenu_title = "Restaurer une partie spéficique"
+        # Restaurer une partie spécifique - local
+        restore_submenu_title = "Restaurer LocalProfiles/SavedArksLocal d'une partie spécifique"
         restore_submenu = ConsoleMenu(restore_submenu_title)
         # compute string length
         str_item_len = 0
@@ -188,7 +222,20 @@ def build_menu():
         # build menu
         for file_item in list:
             item_name = f"{file_item['print_name']:<{str_item_len}} - {file_item['datetime']}"
-            restore_submenu.append_item(FunctionItem(item_name, restore_specific, args=[file_item['filename']]))
+            restore_submenu.append_item(FunctionItem(item_name, restore_specific, args=[file_item['filename'],False]))
+        menu.append_item(SubmenuItem(restore_submenu_title, restore_submenu, menu))
+
+        # Restaurer une partie spécifique - complète
+        restore_submenu_title = "Restaurer complètement une partie spécifique"
+        restore_submenu = ConsoleMenu(restore_submenu_title)
+        # compute string length
+        str_item_len = 0
+        for file_item in list:
+            str_item_len = max(str_item_len, len(file_item['print_name']))
+        # build menu
+        for file_item in list:
+            item_name = f"{file_item['print_name']:<{str_item_len}} - {file_item['datetime']}"
+            restore_submenu.append_item(FunctionItem(item_name, restore_specific, args=[file_item['filename'],True]))
         menu.append_item(SubmenuItem(restore_submenu_title, restore_submenu, menu))
 
     menu.show()
